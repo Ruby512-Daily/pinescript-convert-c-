@@ -1,0 +1,70 @@
+//@version=5
+indicator("ATR Based Stoploss TakeProfit", overlay=true)
+
+// Parameters
+atrLookbackPeriod = input.int(30, title="ATR Lookback Period")
+atrLength = input.int(14, title="ATR Length")
+atrProfitMultiplier = input.float(4.0, title="ATR Profit Multiplier")
+atrLossMultiplier = input.float(1.0, title="ATR Loss Multiplier")
+maLength = input.int(8, title="MA Length")
+stopLossTakeProfitType = input.string("ATR Surge Average", title="Stop Loss Take Profit Type", options=["ATR", "ATR Surge Average"])
+
+// ATR and Moving Average Calculation
+atr = ta.atr(atrLength)
+ma = ta.sma(hl2, maLength)
+
+// NATR Simulation
+natr = atr * 100 / close
+natrSim = ta.atr(1)
+natrSH = ta.highest(natrSim, atrLookbackPeriod)
+
+// Surge Detection
+surgeReset = ta.barssince(natrSH > natrSH[1]) > 5
+natrSurgeH = natrSH > natrSH[1] ? 1 : surgeReset ? 0 : na
+freqnatrSurge = ta.crossover(natrSurgeH, 0)
+
+// Maintaining Historical Data Arrays
+var float[] natrSHArray = array.new_float(0)
+if freqnatrSurge
+    array.push(natrSHArray, natrSH)
+natrSHAvg = array.size(natrSHArray) > 0 ? array.avg(natrSHArray) : na
+
+// Calculating Profit and Loss Multipliers
+natrP = stopLossTakeProfitType == "ATR Surge Average" ? natrSHAvg * atrProfitMultiplier : natr * atrProfitMultiplier
+natrL = stopLossTakeProfitType == "ATR Surge Average" ? natrSHAvg * atrLossMultiplier : natr * atrLossMultiplier
+
+// Managing State for Surges
+var float psnatr = na
+var float lsnatr = na
+psnatr := freqnatrSurge ? natrP : psnatr[1]
+lsnatr := freqnatrSurge ? natrL : lsnatr[1]
+
+// Calculating Levels
+longTakeProfit = ma + psnatr
+shortTakeProfit = ma - psnatr
+longStopLoss = ma - lsnatr
+shortStopLoss = ma + lsnatr
+
+// Plotting Levels
+plot(ma, color=color.blue, title="Moving Average", linewidth=2)
+plot(longTakeProfit, color=color.lime, title="Long Take Profit", linewidth=2)
+plot(shortTakeProfit, color=color.maroon, title="Short Take Profit", linewidth=2)
+plot(longStopLoss, color=color.orange, title="Long Stop Loss", linewidth=2)
+plot(shortStopLoss, color=color.fuchsia, title="Short Stop Loss", linewidth=2)
+
+// Additional Calculations for Risk Management
+risk = 0.3
+fund = (risk / lsnatr) * 99.85
+profit = fund * (1 + (psnatr / 100)) - fund
+
+// Drawing a Table to Display Information
+tablePosition = input.string("Bottom right", options=["Bottom right", "Top right", "Top left", "Bottom left"], title="Table Position")
+tablePos = tablePosition == "Top right" ? position.top_right : tablePosition == "Top left" ? position.top_left : tablePosition == "Bottom right" ? position.bottom_right : position.bottom_left
+
+var table dashboard = table.new(tablePos, 2, 2, frame_color=color.black, frame_width=1)
+
+if bar_index == 0
+    table.cell(dashboard, 0, 0, text="Fund", bgcolor=color.black, text_color=color.white)
+    table.cell(dashboard, 1, 0, text="$" + str.tostring(math.round(fund, 2)), bgcolor=color.black, text_color=color.white)
+    table.cell(dashboard, 0, 1, text="Profit", bgcolor=color.black, text_color=color.white)
+    table.cell(dashboard, 1, 1, text=str.tostring(psnatr, format.percent) + "/" + "$" + str.tostring(math.round(profit, 2)), bgcolor=color.black, text_color=color.white)

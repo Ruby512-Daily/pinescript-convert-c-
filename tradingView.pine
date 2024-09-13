@@ -1,0 +1,122 @@
+//@version=5
+indicator("ATR Based Stoploss" , overlay=true)
+
+main = "Main"
+
+//NATR Surge
+natrlbprd = input.int(30, "ATR Lookback Period", group=main, tooltip="Lookback Period for Volatility Expansion")
+atrLength = input.int(14, "ATR Length", group=main)
+
+tnatrSim = 100 * ta.atr(1)/close
+natr = ta.atr(atrLength)
+natrSim = ta.atr(1)
+natrSH = ta.highest(natrSim, natrlbprd)
+surgeReset = ta.barssince(natrSH > natrSH[1]) > 5
+
+natrSurgeH = 0
+natrSurgeH := natrSH > natrSH[1] ? 1 : surgeReset ? 0 : natrSurgeH[1]
+
+freqnatrSurge = ta.crossover(natrSurgeH, 0)
+SimVal = 0.
+SimVal := freqnatrSurge ? natrSim : SimVal[1]
+
+var float[] natrSHArray = array.new_float(0)
+var float natrSHAvg = na
+
+if freqnatrSurge
+    array.push(natrSHArray, natrSH)
+
+if array.size(natrSHArray) > 0
+    natrSHAvg := array.avg(natrSHArray)
+
+changeLines = natrSHAvg != natrSHAvg[1]
+
+natrSurge = freqnatrSurge and tnatrSim > 1
+
+usenavg = input.string("ATR Surge Average", options=["ATR", "ATR Surge Average"], title="Stop Loss Take Profit Type", group=main)
+
+natrPM = input.float(4, "ATR Profit Multiplier", group=main)
+natrLM = input.float(1, "ATR Loss Multiplier", group=main)
+
+natrP = usenavg == "ATR Surge Average" ? natrSHAvg*natrPM : natr*natrPM
+natrL = usenavg == "ATR Surge Average" ? natrSHAvg*natrLM : natr*natrLM
+
+psnatr = 0.
+psnatr := natrSurge ? natrP : psnatr[1]
+lsnatr = 0.
+lsnatr := natrSurge ? natrL : lsnatr[1]
+
+// The MA 
+
+maLength = input.int(8, title="MA Length", group=main)
+
+theMA = ta.sma(ohlc4, maLength)
+theMAPlus = theMA+psnatr
+theMANeg = theMA-psnatr
+theplusstop = theMA+lsnatr
+thenegstop = theMA-lsnatr
+
+plot(theMA, "Moving Average", color=color.new(color.blue, 0))
+plot(theMAPlus, title='Long Take Profit', color=color.new(color.lime, 60), linewidth=1)
+plot(theMANeg, title='Short Take Profit', color=color.new(color.maroon, 60), linewidth=1)
+plot(theplusstop, title='Short Stop Loss', color=color.new(color.fuchsia, 80), linewidth=1)
+plot(thenegstop, title='Long Stop Loss', color=color.new(color.orange, 80), linewidth=1)
+
+//natrSPump = natrSurge and open < close
+natrSDump = natrSurge and open > close
+
+//plotshape(natrSPump ? low : na, title='Surge Up', text='💥', style=shape.labelup, location=location.absolute, color=color.new(color.black, 100), textcolor=color.new(color.green, 0), size=size.tiny)
+
+//plotshape(natrSDump ? high : na, title='Surge Down', text='🔥', style=shape.labeldown, location=location.absolute, color=color.new(color.black, 100), textcolor=color.new(color.red, 0), size=size.tiny)
+
+//Simple Alerts
+
+//alertcondition(natrSurge, "Volatility Expansion", "Volatility Increasing")
+
+//Preparing Table
+
+tablePosition = input.string("Bottom right", options=["Bottom right", "Top right", "Top left", "Bottom left"], title="Table Position")
+
+tablePosinp = tablePosition == "Top right" ? position.top_right : tablePosition == "Top left" ? position.top_left : tablePosition == "Bottom right" ? position.bottom_right : position.bottom_left
+
+var table dashboarD = table.new(tablePosinp, 3, 2, border_width=1)
+var tbbgcolor = color.new(color.black, 0)
+
+tableF(_table, _column, _row, _title, _value, _bgcolor, _txtcolor) =>
+    _cellText = _title + '\n' + _value
+    table.cell(_table, _column, _row, _cellText, bgcolor=_bgcolor, text_color=_txtcolor, text_size = size.small)
+
+tnatr = 100 * ta.atr(atrLength)/close
+
+tnatrSH = ta.highest(tnatrSim, natrlbprd)
+var float[] tnatrSHArray = array.new_float(0)
+var float tnatrSHAvg = na
+
+if freqnatrSurge
+    array.push(tnatrSHArray, tnatrSH)
+
+if array.size(tnatrSHArray) > 0
+    tnatrSHAvg := array.avg(tnatrSHArray)
+
+tnatrP = usenavg == "ATR Surge Average" ? tnatrSHAvg*natrPM : tnatr*natrPM
+tnatrL = usenavg == "ATR Surge Average" ? tnatrSHAvg*natrLM : tnatr*natrLM
+
+prftpcnt = 0.
+prftpcnt := natrSurge ? tnatrP : prftpcnt[1]
+losspcnt = 0.
+losspcnt := natrSurge ? tnatrL : losspcnt[1]
+
+risK = input.float(0.3, title="$Risk")
+funD = (risK/losspcnt)*99.85
+prfT = funD*(1+(prftpcnt/100)) - funD
+
+lCol = color.new(color.red, 60)
+
+tableF(dashboarD, 0, 0, 'Fund', '$' + str.tostring(math.round(funD, 2)), tbbgcolor, color.white)
+
+tableF(dashboarD, 1, 0, 'Profit', str.tostring(prftpcnt, format.percent)+"/"+'$'+str.tostring(math.round(prfT, 2)), tbbgcolor, color.white)
+
+tableF(dashboarD, 0, 1, 'ATR',str.tostring(natr), tbbgcolor, color.white)
+
+tableF(dashboarD, 1, 1, 'Loss', str.tostring(losspcnt, format.percent)+"/"+'$'+str.tostring(math.round(risK, 2)), lCol, color.white)
+
